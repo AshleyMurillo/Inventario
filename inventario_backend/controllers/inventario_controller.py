@@ -8,62 +8,18 @@ from services.eoq_service import (
     generar_alerta
 )
 
+
+from services.eoq_service import (
+    calcular_eoq,
+    calcular_stock_seguridad,
+    calcular_pro,
+    generar_alerta
+)
+
 inventario_bp = Blueprint('inventario', __name__)
 
-@inventario_bp.route('/api/inventario/<product_id>', methods=['GET'])
-def obtener_producto(product_id):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("""
-        SELECT p.Product_ID, p.Product_Name, p.Unit_Price,
-               i.Stock_Quantity, i.Sales_Volume,
-               l.Order_Cost, l.Holding_Cost_Percentage, l.Lead_Time
-        FROM Productos p
-        JOIN Inventario i ON p.Product_ID = i.Product_ID
-        JOIN Logistica l ON p.Product_ID = l.Product_ID
-        WHERE p.Product_ID = %s
-    """, (product_id,))
-    
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-
-    if not row:
-        return jsonify({"error": "Producto no encontrado"}), 404
-
-    try:
-        demanda_anual = row['Sales_Volume'] * 12
-        demanda_diaria = row['Sales_Volume'] / 30
-        h = row['Unit_Price'] * (row['Holding_Cost_Percentage'] / 100)
-
-        eoq = calcular_eoq(demanda_anual, row['Order_Cost'], h)
-        stock_seguro = calcular_stock_seguridad(demanda_diaria)
-        pro = calcular_pro(demanda_diaria, row['Lead_Time'], stock_seguro)
-        alerta = generar_alerta(row['Stock_Quantity'], pro, eoq)
-
-    except KeyError as e:
-        return jsonify({
-            "error": f"Falta el campo esperado: {e.args[0]}",
-            "detalle": "Verifica el SELECT SQL o la estructura de la tabla."
-        }), 400
-    except Exception as e:
-        return jsonify({
-            "error": "Error al procesar el producto",
-            "detalle": str(e)
-        }), 400
-
-    return jsonify({
-        "producto": row,
-        "eoq": eoq,
-        "stock_seguridad": stock_seguro,
-        "pro": pro,
-        "alerta": alerta
-    })
-
-
-
-#Total de productos activos
+#ENDPOINT Total de productos activos
 @inventario_bp.route('/api/inventario/activos', methods=['GET'])
 def contar_productos_activos():
     conn = get_connection()
@@ -76,7 +32,7 @@ def contar_productos_activos():
     return jsonify({"total_activos": total})
 
 
-#Productos vencidos
+#ENDPOINT Productos vencidos
 @inventario_bp.route('/api/inventario/vencidos', methods=['GET'])
 def productos_vencidos():
     conn = get_connection()
@@ -99,7 +55,7 @@ def productos_vencidos():
     return jsonify(vencidos)
 
 
-#Porductos con bajo inventario
+#ENDPOINT Porductos con bajo inventario
 @inventario_bp.route('/api/inventario/bajo-stock', methods=['GET'])
 def productos_bajo_stock():
     conn = get_connection()
@@ -117,3 +73,125 @@ def productos_bajo_stock():
     conn.close()
 
     return jsonify(bajos)
+
+
+
+#ENDPOINT PANTALLA 2
+@inventario_bp.route('/api/inventario/con-eoq', methods=['GET'])
+def productos_con_eoq():
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT p.Product_Name, p.Unit_Price,
+               i.Stock_Quantity, i.Sales_Volume,
+               l.Order_Cost, l.Holding_Cost_Percentage
+        FROM Productos p
+        JOIN Inventario i ON p.Product_ID = i.Product_ID
+        JOIN Logistica l ON p.Product_ID = l.Product_ID
+    """)
+
+    resultados = []
+    for row in cursor.fetchall():
+        try:
+            demanda_anual = row['Sales_Volume'] * 12
+            order_cost = row['Order_Cost']
+            holding_cost = row['Unit_Price'] * (row['Holding_Cost_Percentage'] / 100)
+
+            eoq = calcular_eoq(demanda_anual, order_cost, holding_cost)
+
+            resultados.append({
+                "Product_Name": row['Product_Name'],
+                "Stock_Quantity": row['Stock_Quantity'],
+                "EOQ": eoq
+            })
+        except Exception as e:
+            print(f"Error en producto {row['Product_Name']}: {e}")
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(resultados)
+
+
+#ENDPOINT DETALLES DEL PRODUCTO
+@inventario_bp.route('/api/inventario/detalles/<product_id>', methods=['GET'])
+def detalles_producto(product_id):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT p.Product_ID, p.Unit_Price, p.Status,
+               i.Stock_Quantity, i.Sales_Volume,
+               l.Order_Cost, l.Holding_Cost_Percentage, l.Lead_Time
+        FROM Productos p
+        JOIN Inventario i ON p.Product_ID = i.Product_ID
+        JOIN Logistica l ON p.Product_ID = l.Product_ID
+        WHERE p.Product_ID = %s
+    """, (product_id,))
+    
+    row = cursor.fetchone()
+
+    if not row:
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    try:
+        # Calcular métricas
+        demanda_anual = row['Sales_Volume'] * 12
+        demanda_diaria = row['Sales_Volume'] / 30
+        h = row['Unit_Price'] * (row['Holding_Cost_Percentage'] / 100)
+
+        eoq = calcular_eoq(demanda_anual, row['Order_Cost'], h)
+        stock_seguro = calcular_stock_seguridad(demanda_diaria)
+        pro = calcular_pro(demanda_diaria, row['Lead_Time'], stock_seguro)
+        alerta = generar_alerta(row['Stock_Quantity'], pro, eoq)
+
+        # Insertar o actualizar en tabla Calculos
+        cursor.execute("""
+            INSERT INTO Calculos (
+                Product_ID, Annual_Demand, Daily_Demand,
+                EOQ, Safety_Stock, PRO, Suggested_Order, Restock_Alert
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                Annual_Demand = VALUES(Annual_Demand),
+                Daily_Demand = VALUES(Daily_Demand),
+                EOQ = VALUES(EOQ),
+                Safety_Stock = VALUES(Safety_Stock),
+                PRO = VALUES(PRO),
+                Suggested_Order = VALUES(Suggested_Order),
+                Restock_Alert = VALUES(Restock_Alert)
+        """, (
+            row['Product_ID'],
+            demanda_anual,
+            round(demanda_diaria, 2),
+            eoq,
+            stock_seguro,
+            pro,
+            alerta["cantidad_sugerida"],
+            alerta["alerta"]
+        ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+  
+            "Stock actual": row['Stock_Quantity'],
+            "EOQ": eoq,
+            "Stock seguro": stock_seguro,
+            "PRO": pro,
+            "Pedido sugerido": alerta["cantidad_sugerida"],
+            "Estado": row["Status"]
+        })
+
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        return jsonify({
+            "error": "Error al calcular métricas del producto",
+            "detalle": str(e)
+        }), 500
