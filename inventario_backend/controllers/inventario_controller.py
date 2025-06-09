@@ -24,7 +24,7 @@ inventario_bp = Blueprint('inventario', __name__)
 def contar_productos_activos():
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM Productos WHERE Status = 'Active'")
+    cursor.execute("SELECT COUNT(*) AS total FROM Productos WHERE Status = 'Active'")
     total = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -42,11 +42,15 @@ def productos_vencidos():
     hoy = datetime.now().date()
 
     cursor.execute("""
-        SELECT p.Product_Name, i.Expiration_Date
-        FROM Productos p
-        JOIN Inventario i ON p.Product_ID = i.Product_ID
-        WHERE i.Expiration_Date < %s
-    """, (hoy,))
+        SELECT 
+        p.Product_ID AS id,
+        p.Product_Name AS nombre,
+        i.Expiration_Date AS fechaVencimiento,
+        COALESCE(p.Catagory, 'Sin categoría') AS categoria
+    FROM Productos p
+    JOIN Inventario i ON p.Product_ID = i.Product_ID
+    WHERE i.Expiration_Date < %s
+""", (hoy,))
 
     vencidos = cursor.fetchall()
     cursor.close()
@@ -62,11 +66,15 @@ def productos_bajo_stock():
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT p.Product_Name, i.Stock_Quantity
-        FROM Productos p
-        JOIN Inventario i ON p.Product_ID = i.Product_ID
-        WHERE i.Stock_Quantity <= i.Reorder_Level
-    """)
+       SELECT 
+        p.Product_ID AS id,
+        p.Product_Name AS nombre,
+        i.Stock_Quantity AS existencias,
+        COALESCE(p.Catagory, 'Sin categoría') AS categoria
+    FROM Productos p
+    JOIN Inventario i ON p.Product_ID = i.Product_ID
+    WHERE i.Stock_Quantity <= i.Reorder_Level
+""")
 
     bajos = cursor.fetchall()
     cursor.close()
