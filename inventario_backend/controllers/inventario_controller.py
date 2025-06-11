@@ -8,18 +8,10 @@ from services.eoq_service import (
     generar_alerta
 )
 
-
-from services.eoq_service import (
-    calcular_eoq,
-    calcular_stock_seguridad,
-    calcular_pro,
-    generar_alerta
-)
-
 inventario_bp = Blueprint('inventario', __name__)
 
 
-#ENDPOINT Total de productos activos
+# ENDPOINT Total de productos activos
 @inventario_bp.route('/api/inventario/activos', methods=['GET'])
 def contar_productos_activos():
     conn = get_connection()
@@ -28,70 +20,64 @@ def contar_productos_activos():
     total = cursor.fetchone()[0]
     cursor.close()
     conn.close()
-
     return jsonify({"total_activos": total})
 
 
-#ENDPOINT Productos vencidos
+# ENDPOINT Productos vencidos
 @inventario_bp.route('/api/inventario/vencidos', methods=['GET'])
 def productos_vencidos():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-
-    # Obtener la fecha de hoy en formato YYYY-MM-DD
     hoy = datetime.now().date()
 
     cursor.execute("""
         SELECT 
-        p.Product_ID AS id,
-        p.Product_Name AS nombre,
-        i.Expiration_Date AS fechaVencimiento,
-        COALESCE(p.Catagory, 'Sin categoría') AS categoria
-    FROM Productos p
-    JOIN Inventario i ON p.Product_ID = i.Product_ID
-    WHERE i.Expiration_Date < %s
-""", (hoy,))
+            p.Product_ID AS id,
+            p.Product_Name AS nombre,
+            i.Expiration_Date AS fechaVencimiento,
+            COALESCE(p.Catagory, 'Sin categoría') AS categoria
+        FROM Productos p
+        JOIN Inventario i ON p.Product_ID = i.Product_ID
+        WHERE i.Expiration_Date < %s
+    """, (hoy,))
 
     vencidos = cursor.fetchall()
     cursor.close()
     conn.close()
-
     return jsonify(vencidos)
 
 
-#ENDPOINT Porductos con bajo inventario
+# ENDPOINT Productos con bajo inventario
 @inventario_bp.route('/api/inventario/bajo-stock', methods=['GET'])
 def productos_bajo_stock():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-       SELECT 
-        p.Product_ID AS id,
-        p.Product_Name AS nombre,
-        i.Stock_Quantity AS existencias,
-        COALESCE(p.Catagory, 'Sin categoría') AS categoria
-    FROM Productos p
-    JOIN Inventario i ON p.Product_ID = i.Product_ID
-    WHERE i.Stock_Quantity <= i.Reorder_Level
-""")
+        SELECT 
+            p.Product_ID AS id,
+            p.Product_Name AS nombre,
+            i.Stock_Quantity AS existencias,
+            COALESCE(p.Catagory, 'Sin categoría') AS categoria
+        FROM Productos p
+        JOIN Inventario i ON p.Product_ID = i.Product_ID
+        WHERE i.Stock_Quantity <= i.Reorder_Level
+    """)
 
     bajos = cursor.fetchall()
     cursor.close()
     conn.close()
-
     return jsonify(bajos)
 
 
-
-#ENDPOINT PANTALLA 2
+# ENDPOINT Inventario con EOQ (tabla principal)
 @inventario_bp.route('/api/inventario/con-eoq', methods=['GET'])
 def productos_con_eoq():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT p.Product_Name, p.Unit_Price,
+        SELECT p.Product_ID, p.Product_Name, p.Unit_Price,
                i.Stock_Quantity, i.Sales_Volume,
                l.Order_Cost, l.Holding_Cost_Percentage
         FROM Productos p
@@ -105,10 +91,10 @@ def productos_con_eoq():
             demanda_anual = row['Sales_Volume'] * 12
             order_cost = row['Order_Cost']
             holding_cost = row['Unit_Price'] * (row['Holding_Cost_Percentage'] / 100)
-
             eoq = calcular_eoq(demanda_anual, order_cost, holding_cost)
 
             resultados.append({
+                "Product_ID": row['Product_ID'],  # ID incluido
                 "Product_Name": row['Product_Name'],
                 "Stock_Quantity": row['Stock_Quantity'],
                 "EOQ": eoq
@@ -118,11 +104,10 @@ def productos_con_eoq():
 
     cursor.close()
     conn.close()
-
     return jsonify(resultados)
 
 
-#ENDPOINT DETALLES DEL PRODUCTO
+# ENDPOINT Detalles de producto 
 @inventario_bp.route('/api/inventario/detalles/<product_id>', methods=['GET'])
 def detalles_producto(product_id):
     conn = get_connection()
@@ -146,7 +131,6 @@ def detalles_producto(product_id):
         return jsonify({"error": "Producto no encontrado"}), 404
 
     try:
-        # Calcular métricas
         demanda_anual = row['Sales_Volume'] * 12
         demanda_diaria = row['Sales_Volume'] / 30
         h = row['Unit_Price'] * (row['Holding_Cost_Percentage'] / 100)
@@ -156,7 +140,6 @@ def detalles_producto(product_id):
         pro = calcular_pro(demanda_diaria, row['Lead_Time'], stock_seguro)
         alerta = generar_alerta(row['Stock_Quantity'], pro, eoq)
 
-        # Insertar o actualizar en tabla Calculos
         cursor.execute("""
             INSERT INTO Calculos (
                 Product_ID, Annual_Demand, Daily_Demand,
@@ -187,7 +170,6 @@ def detalles_producto(product_id):
         conn.close()
 
         return jsonify({
-  
             "Stock actual": row['Stock_Quantity'],
             "EOQ": eoq,
             "Stock seguro": stock_seguro,
