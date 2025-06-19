@@ -462,7 +462,7 @@ const Dashboard = () => {
                       <Package className="icon-sm" />
                       Inventario
                     </button>
-                    <button className="action-button" onClick={() => navigate("/pedido")}>
+                    <button className="action-button" onClick={() => navigate("/pedidos")}>
                       <ShoppingCart className="icon-sm" />
                       Nuevo Pedido
                     </button>

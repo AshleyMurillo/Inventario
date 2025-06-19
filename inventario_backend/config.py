@@ -1,6 +1,6 @@
 DB_CONFIG = {
     "host": "localhost",
-    "user": "root",
-    "password": "Alvarez07",
+    "user": "<mari>",
+    "password": "<cam0921.>",
     "database": "InventarioAbarrotes"
 }

@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from db import get_connection
-from datetime import datetime
+from datetime import datetime, timedelta
 from services.eoq_service import (
     calcular_eoq,
     calcular_stock_seguridad,
@@ -276,7 +276,7 @@ def registrar_pedido_manual():
     if not result:
         cursor.close()
         conn.close()
-        return jsonify({"error": "Producto o proveedor no encontrado"}), 404
+        return jsonify({"error": "Producto o proveedor no encontrado: Revisar la lista de productos que trae ese proveedor"}), 404
 
     if result["Status"] == "Discontinued":
         cursor.close()

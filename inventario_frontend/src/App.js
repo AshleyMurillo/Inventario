@@ -4,6 +4,7 @@ import { useState } from "react"
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom"
 import Dashboard from "./components/Dashboard"
 import Inventory from "./components/Inventory"
+import PedidosApp from "./components/PedidosApp"
 import { Package, BarChart3, Menu, X, Home } from "lucide-react"
 import "./App.css"
 
@@ -25,6 +26,12 @@ const Navigation = () => {
       icon: Package,
       description: "Gestión de productos",
     },
+    {
+      path: "/pedidos",
+      label: "Pedidos",
+      icon: Package,
+      description: "Gestión de pedidos y proveedores",
+    }
   ]
 
   const isActive = (path) => location.pathname === path
@@ -111,6 +118,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/inventario" element={<Inventory />} />
+            <Route path="/pedidos" element={<PedidosApp/>}/>
           </Routes>
         </main>
       </div>
