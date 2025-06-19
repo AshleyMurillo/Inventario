@@ -185,3 +185,133 @@ def detalles_producto(product_id):
             "error": "Error al calcular métricas del producto",
             "detalle": str(e)
         }), 500
+
+
+
+#Endpoint obtener lista de proveedores
+@inventario_bp.route('/api/proveedores', methods=['GET'])
+def obtener_proveedores():
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT Supplier_ID, Supplier_Name FROM Proveedores")
+    proveedores = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(proveedores)
+
+
+#Endpoint listar todos los productos disponibles
+@inventario_bp.route('/api/inventario', methods=['GET'])
+def listar_productos():
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT p.Product_ID, p.Product_Name
+        FROM Productos p
+        WHERE p.Status = 'Active'
+    """)
+    productos = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(productos)
+
+
+
+
+# Endpoint obtener stock de un producto por ID
+@inventario_bp.route('/api/inventario/<product_id>', methods=['GET'])
+def obtener_stock_producto(product_id):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT p.Product_ID, p.Product_Name, i.Stock_Quantity
+        FROM Productos p
+        JOIN Inventario i ON p.Product_ID = i.Product_ID
+        WHERE p.Product_ID = %s
+    """, (product_id,))
+    
+    producto = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not producto:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    return jsonify({"producto": producto})
+
+
+
+#Endpoint agregar nuevo pedido
+@inventario_bp.route('/api/pedidos', methods=['POST'])
+def registrar_pedido_manual():
+    data = request.get_json()
+    supplier_id = data.get("Supplier_ID")
+    product_id = data.get("Product_ID")
+    cantidad = data.get("Cantidad")
+
+    if not all([supplier_id, product_id, cantidad]):
+        return jsonify({"error": "Faltan datos requeridos"}), 400
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # 1. Verificar que el producto exista y esté activo
+    cursor.execute("""
+        SELECT p.Status, i.Stock_Quantity, l.Lead_Time
+        FROM Productos p
+        JOIN Inventario i ON p.Product_ID = i.Product_ID
+        JOIN Logistica l ON p.Product_ID = l.Product_ID
+        WHERE p.Product_ID = %s AND p.Supplier_ID = %s
+    """, (product_id, supplier_id))
+    
+    result = cursor.fetchone()
+
+    if not result:
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Producto o proveedor no encontrado"}), 404
+
+    if result["Status"] == "Discontinued":
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Este producto ha sido descontinuado"}), 400
+
+    stock_actual = result["Stock_Quantity"]
+    lead_time = result["Lead_Time"]
+    fecha_pedido = datetime.today().date()
+    fecha_entrega = fecha_pedido + timedelta(days=lead_time)
+
+    # 2. Actualizar la fecha de último pedido (Last_Order_Date)
+    cursor.execute("""
+        UPDATE Inventario
+        SET Last_Order_Date = %s
+        WHERE Product_ID = %s
+    """, (fecha_entrega, product_id))
+
+    # 3. Cambiar el estado del producto a 'Backordered'
+    cursor.execute("""
+        UPDATE Productos
+        SET Status = 'Backordered'
+        WHERE Product_ID = %s
+    """, (product_id,))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "mensaje": "Pedido registrado correctamente",
+        "Product_ID": product_id,
+        "Supplier_ID": supplier_id,
+        "Cantidad_Solicitada": cantidad,
+        "Stock_Actual": stock_actual,
+        "Fecha_Entrega_Estimada": str(fecha_entrega),
+        "Nuevo_Estado": "Backordered"
+    }), 200
