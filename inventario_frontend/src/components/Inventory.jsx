@@ -21,6 +21,9 @@ import { Bar } from "react-chartjs-2"
 import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from "chart.js"
 import "../styles/Inventory.css"
 
+
+import PromotionSimulationModal from "./PromotionSimulationModal"
+
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
 const Inventory = () => {
@@ -32,6 +35,9 @@ const Inventory = () => {
   const [searchTerm, setSearchTerm] = useState("")
   const [itemsPerPage] = useState(10)
 
+
+  const [promotionModalOpen, setPromotionModalOpen] = useState(false)
+
   useEffect(() => {
     fetchProductos()
   }, [])
@@ -42,14 +48,17 @@ const Inventory = () => {
       const response = await fetch("http://localhost:5000/api/inventario/con-eoq")
       if (!response.ok) throw new Error("Error al cargar productos")
       const data = await response.json()
+  
+      
       setProductos(data)
     } catch (err) {
-      console.error("Error al cargar EOQ:", err)
+      console.error("Error al cargar productos:", err)
       setError("Error al cargar los productos")
     } finally {
       setLoading(false)
     }
   }
+  
 
   const handleDetalles = async (productId, nombre) => {
     try {
@@ -62,11 +71,11 @@ const Inventory = () => {
     }
   }
 
-  const getStockStatus = (stock, eoq) => {
-    const ratio = stock / eoq
-    if (ratio < 0.5) return { status: "critical", color: "danger", label: "Crítico" }
-    if (ratio < 1) return { status: "low", color: "warning", label: "Bajo" }
-    if (ratio < 2) return { status: "good", color: "success", label: "Bueno" }
+  // Función para comparar Stock vs PRO
+  const getStockStatus = (stock, pro) => {
+    if (stock <= pro * 0.5) return { status: "critical", color: "danger", label: "Crítico" }
+    if (stock <= pro) return { status: "low", color: "warning", label: "Bajo" }
+    if (stock <= pro * 1.5) return { status: "good", color: "success", label: "Bueno" }
     return { status: "high", color: "info", label: "Alto" }
   }
 
@@ -94,10 +103,10 @@ const Inventory = () => {
   }
 
   const generarProsa = (data) => {
-    const stockStatus = getStockStatus(data["Stock actual"], data.EOQ)
-    return `El análisis del producto "${data.nombre}" revela un stock actual de ${data["Stock actual"]} unidades con un estado ${stockStatus.label.toLowerCase()}. 
+    const stockStatus = getStockStatus(data["Stock actual"], data.PRO)
+    return `El análisis del producto "${data.nombre}" revela un stock actual de ${Math.round(data["Stock actual"])} unidades con un estado ${stockStatus.label.toLowerCase()}. 
 
-El sistema recomienda mantener un Punto de Reorden (PRO) de ${data.PRO} unidades y un stock de seguridad de ${data["Stock seguro"]} unidades para evitar desabastecimientos.
+El sistema recomienda mantener un Punto de Reorden (PRO) de ${Math.round(data.PRO)} unidades y un stock de seguridad de ${Math.round(data["Stock seguro"])} unidades para evitar desabastecimientos.
 
 La Cantidad Económica de Pedido (EOQ) calculada es de ${Math.round(data.EOQ)} unidades, optimizando los costos de almacenamiento y pedido. 
 
@@ -110,7 +119,13 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
       datasets: [
         {
           label: "Cantidad",
-          data: [data["Stock actual"], Math.round(data.EOQ), data["Stock seguro"], data.PRO, data["Pedido sugerido"]],
+          data: [
+            Math.round(data["Stock actual"]),
+            Math.round(data.EOQ),
+            Math.round(data["Stock seguro"]),
+            Math.round(data.PRO),
+            Math.round(data["Pedido sugerido"]),
+          ],
           backgroundColor: [
             "rgba(59, 130, 246, 0.8)", // Stock Actual - Azul
             "rgba(16, 185, 129, 0.8)", // EOQ - Verde
@@ -306,6 +321,7 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
                     <th>ID</th>
                     <th>Producto</th>
                     <th>Stock Actual</th>
+                    <th>PRO</th>
                     <th>EOQ</th>
                     <th>Estado</th>
                     <th>Acciones</th>
@@ -314,7 +330,8 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
                 <tbody>
                   <AnimatePresence>
                     {currentProductos.map((producto, index) => {
-                      const stockStatus = getStockStatus(producto.Stock_Quantity, producto.EOQ)
+                      
+                      const stockStatus = getStockStatus(producto.Stock_Quantity, producto.PRO)
                       return (
                         <motion.tr
                           key={producto.Product_ID}
@@ -333,6 +350,9 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
                           <td className="cell-stock">
                             <span className="stock-value">{producto.Stock_Quantity}</span>
                             <span className="stock-unit">unidades</span>
+                          </td>
+                          <td className="cell-pro">
+                            <span className="pro-value">{Math.round(producto.PRO)}</span>
                           </td>
                           <td className="cell-eoq">
                             <span className="eoq-value">{Math.round(producto.EOQ)}</span>
@@ -413,14 +433,15 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
             )}
           </div>
 
-          {/* Action Button */}
+          {/* Boton de simular promociones */}
           <motion.div
             className="action-section"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
           >
-            <button className="btn-promotion">
+            
+            <button className="btn-promotion" onClick={() => setPromotionModalOpen(true)}>
               <Zap className="icon-sm" />
               Simular Promociones
               <span className="btn-arrow">→</span>
@@ -480,7 +501,7 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
                         </div>
                         <div className="metric-content">
                           <span className="metric-label">Stock Actual</span>
-                          <span className="metric-value">{modalData["Stock actual"]}</span>
+                          <span className="metric-value">{Math.round(modalData["Stock actual"])}</span>
                         </div>
                       </div>
 
@@ -500,7 +521,7 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
                         </div>
                         <div className="metric-content">
                           <span className="metric-label">Stock Seguro</span>
-                          <span className="metric-value">{modalData["Stock seguro"]}</span>
+                          <span className="metric-value">{Math.round(modalData["Stock seguro"])}</span>
                         </div>
                       </div>
 
@@ -510,7 +531,7 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
                         </div>
                         <div className="metric-content">
                           <span className="metric-label">Punto Reorden</span>
-                          <span className="metric-value">{modalData.PRO}</span>
+                          <span className="metric-value">{Math.round(modalData.PRO)}</span>
                         </div>
                       </div>
 
@@ -569,6 +590,13 @@ Recomendación: Realizar un pedido de ${Math.round(data["Pedido sugerido"])} uni
           </motion.div>
         )}
       </AnimatePresence>
+
+      
+      <PromotionSimulationModal
+        isOpen={promotionModalOpen}
+        onClose={() => setPromotionModalOpen(false)}
+        productos={productos}
+      />
     </>
   )
 }

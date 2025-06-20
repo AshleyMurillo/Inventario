@@ -79,7 +79,7 @@ def productos_con_eoq():
     cursor.execute("""
         SELECT p.Product_ID, p.Product_Name, p.Unit_Price,
                i.Stock_Quantity, i.Sales_Volume,
-               l.Order_Cost, l.Holding_Cost_Percentage
+               l.Order_Cost, l.Holding_Cost_Percentage, l.Lead_Time
         FROM Productos p
         JOIN Inventario i ON p.Product_ID = i.Product_ID
         JOIN Logistica l ON p.Product_ID = l.Product_ID
@@ -89,23 +89,40 @@ def productos_con_eoq():
     for row in cursor.fetchall():
         try:
             demanda_anual = row['Sales_Volume'] * 12
+            demanda_diaria = row['Sales_Volume'] / 30
             order_cost = row['Order_Cost']
             holding_cost = row['Unit_Price'] * (row['Holding_Cost_Percentage'] / 100)
+
             eoq = calcular_eoq(demanda_anual, order_cost, holding_cost)
+            stock_seguro = calcular_stock_seguridad(demanda_diaria)
+            pro = calcular_pro(demanda_diaria, row['Lead_Time'], stock_seguro)
 
             resultados.append({
-                "Product_ID": row['Product_ID'],  # ID incluido
+                "Product_ID": row['Product_ID'],
                 "Product_Name": row['Product_Name'],
                 "Stock_Quantity": row['Stock_Quantity'],
-                "EOQ": eoq
+                "Sales_Volume": row['Sales_Volume'],
+                "Lead_Time": row['Lead_Time'],
+                "EOQ": round(eoq),
+                "Stock_Seguro": round(stock_seguro),
+                "PRO": round(pro)
             })
         except Exception as e:
             print(f"Error en producto {row['Product_Name']}: {e}")
+            resultados.append({
+                "Product_ID": row['Product_ID'],
+                "Product_Name": row['Product_Name'],
+                "Stock_Quantity": row['Stock_Quantity'],
+                "Sales_Volume": row['Sales_Volume'] or 0,
+                "Lead_Time": row['Lead_Time'] or 7,
+                "EOQ": 0,
+                "Stock_Seguro": 0,
+                "PRO": 0
+            })
 
     cursor.close()
     conn.close()
     return jsonify(resultados)
-
 
 # ENDPOINT Detalles de producto 
 @inventario_bp.route('/api/inventario/detalles/<product_id>', methods=['GET'])
@@ -336,3 +353,113 @@ def registrar_pedido_manual():
         "Nueva_Fecha_Expiracion": str(fecha_expiracion),
         "Nuevo_Estado": "Active" if fecha_entrega <=datetime.today().date() else "Backordered"
     }), 200
+
+
+#Endpoint simular promociones
+@inventario_bp.route('/api/inventario/simular-promocion/<product_id>', methods=['POST'])
+def simular_promocion(product_id):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        # Validar que se recibió el JSON
+        if not request.json:
+            return jsonify({"error": "No se recibió datos JSON"}), 400
+            
+        data = request.json
+        aumento_porcentual = data.get('porcentaje_promocion')
+
+        # Validar el porcentaje
+        if aumento_porcentual is None:
+            return jsonify({"error": "Debe enviar el porcentaje_promocion en el cuerpo JSON"}), 400
+            
+        # Convertir a float y validar rango
+        try:
+            aumento_porcentual = float(aumento_porcentual)
+            if aumento_porcentual <= 0 or aumento_porcentual > 100:
+                return jsonify({"error": "El porcentaje debe estar entre 1 y 100"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "El porcentaje_promocion debe ser un número válido"}), 400
+
+        print(f"Simulando promoción para producto: {product_id} con {aumento_porcentual}%")
+
+        # Buscar el producto
+        cursor.execute("""
+            SELECT p.Product_ID, p.Product_Name, p.Unit_Price,
+                   i.Stock_Quantity, i.Sales_Volume,
+                   l.Order_Cost, l.Holding_Cost_Percentage
+            FROM Productos p
+            JOIN Inventario i ON p.Product_ID = i.Product_ID
+            JOIN Logistica l ON p.Product_ID = l.Product_ID
+            WHERE p.Product_ID = %s
+        """, (product_id,))
+
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"error": f"Producto con ID {product_id} no encontrado"}), 404
+
+        # Validar que los datos necesarios no sean None o 0
+        required_fields = ['Sales_Volume', 'Order_Cost', 'Unit_Price', 'Holding_Cost_Percentage']
+        for field in required_fields:
+            if row[field] is None or row[field] == 0:
+                return jsonify({
+                    "error": f"El producto no tiene datos válidos para {field}",
+                    "detalle": f"Valor actual: {row[field]}"
+                }), 400
+
+        # Cálculos base
+        demanda_actual = float(row['Sales_Volume']) * 12
+        order_cost = float(row['Order_Cost'])
+        holding_cost = float(row['Unit_Price']) * (float(row['Holding_Cost_Percentage']) / 100)
+
+        # Validar que los valores calculados sean válidos
+        if demanda_actual <= 0:
+            return jsonify({"error": "La demanda anual debe ser mayor a 0"}), 400
+        if order_cost <= 0:
+            return jsonify({"error": "El costo de pedido debe ser mayor a 0"}), 400
+        if holding_cost <= 0:
+            return jsonify({"error": "El costo de almacenamiento debe ser mayor a 0"}), 400
+
+        # Calcular EOQ actual
+        try:
+            eoq_actual = calcular_eoq(demanda_actual, order_cost, holding_cost)
+        except Exception as e:
+            return jsonify({
+                "error": "Error al calcular EOQ actual",
+                "detalle": str(e)
+            }), 500
+
+        # Simulación con promoción
+        nueva_demanda = demanda_actual * (1 + aumento_porcentual / 100)
+        
+        try:
+            eoq_promocion = calcular_eoq(nueva_demanda, order_cost, holding_cost)
+        except Exception as e:
+            return jsonify({
+                "error": "Error al calcular EOQ con promoción",
+                "detalle": str(e)
+            }), 500
+
+        # Preparar respuesta con valores redondeados
+        resultado = {
+            "Producto": row['Product_Name'],
+            "Demanda Anual Actual": round(demanda_actual),
+            "EOQ Actual": round(eoq_actual),
+            "Demanda Anual Simulada": round(nueva_demanda),
+            "EOQ con Promoción": round(eoq_promocion),
+            "Diferencia EOQ": round(eoq_promocion - eoq_actual)
+        }
+        
+        return jsonify(resultado)
+
+    except Exception as e:
+        return jsonify({
+            "error": "Error interno del servidor",
+            "detalle": str(e),
+            "tipo": type(e)._name_
+        }), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
