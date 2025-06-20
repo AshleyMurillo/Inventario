@@ -1,0 +1,58 @@
+-- Base de datos
+CREATE DATABASE IF NOT EXISTS InventarioAbarrotes;
+USE InventarioAbarrotes;
+
+-- Proveedores
+CREATE TABLE Proveedores (
+    Supplier_ID VARCHAR(20) PRIMARY KEY,
+    Supplier_Name VARCHAR(100)
+);
+
+-- Productos
+CREATE TABLE Productos (
+    Product_ID VARCHAR(20) PRIMARY KEY,
+    Product_Name VARCHAR(100),
+    Catagory VARCHAR(100),
+    Supplier_ID VARCHAR(20),
+    Unit_Price DECIMAL(10,2),
+    Status VARCHAR(50),
+    FOREIGN KEY (Supplier_ID) REFERENCES Proveedores(Supplier_ID)
+);
+
+-- Inventario
+CREATE TABLE Inventario (
+    Product_ID VARCHAR(20) PRIMARY KEY,
+    Stock_Quantity INT,
+    Reorder_Level INT,
+    Reorder_Quantity INT,
+    Date_Received DATE,
+    Last_Order_Date DATE,
+    Expiration_Date DATE,
+    Warehouse_Location VARCHAR(100),
+    Sales_Volume INT,
+    Inventory_Turnover_Rate INT,
+    FOREIGN KEY (Product_ID) REFERENCES Productos(Product_ID)
+);
+
+-- Configuración logística (parámetros personalizados)
+CREATE TABLE Logistica (
+    Product_ID VARCHAR(20) PRIMARY KEY,
+    Order_Cost DECIMAL(10,2),
+    Holding_Cost_Percentage DECIMAL(5,2),
+    Lead_Time INT,
+    Demand_Std_Dev DECIMAL(10,2),
+    FOREIGN KEY (Product_ID) REFERENCES Productos(Product_ID)
+);
+
+-- Resultados de cálculo
+CREATE TABLE Calculos (
+    Product_ID VARCHAR(20) PRIMARY KEY,
+    Annual_Demand INT,
+    Daily_Demand DECIMAL(10,2),
+    EOQ DECIMAL(10,2),
+    Safety_Stock INT,
+    PRO INT,
+    Suggested_Order INT,
+    Restock_Alert BOOLEAN,
+    FOREIGN KEY (Product_ID) REFERENCES Productos(Product_ID)
+);
