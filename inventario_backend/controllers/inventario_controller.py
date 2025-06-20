@@ -249,6 +249,7 @@ def obtener_stock_producto(product_id):
 
 
 #Endpoint agregar nuevo pedido
+
 @inventario_bp.route('/api/pedidos', methods=['POST'])
 def registrar_pedido_manual():
     data = request.get_json()
@@ -288,19 +289,38 @@ def registrar_pedido_manual():
     fecha_pedido = datetime.today().date()
     fecha_entrega = fecha_pedido + timedelta(days=lead_time)
 
-    # 2. Actualizar la fecha de último pedido (Last_Order_Date)
+    # Calcular fecha de expiración (30 días después de entrega estimada)
+    fecha_expiracion = fecha_entrega + timedelta(days=30)
+
+    # 2. Actualizar la fecha de último pedido y expiración
     cursor.execute("""
         UPDATE Inventario
-        SET Last_Order_Date = %s
+        SET Last_Order_Date = %s,
+                   Date_Received= %s ,
+            Expiration_Date = %s
         WHERE Product_ID = %s
-    """, (fecha_entrega, product_id))
+    """, (fecha_pedido, fecha_entrega, fecha_expiracion, product_id))
 
-    # 3. Cambiar el estado del producto a 'Backordered'
+    # 3. Cambiar estado a 'Backordered'
     cursor.execute("""
         UPDATE Productos
         SET Status = 'Backordered'
         WHERE Product_ID = %s
     """, (product_id,))
+
+    # 4. Si hoy es igual a la fecha estimada de entrega, actualizar a recibido y activo
+    if fecha_entrega == datetime.today().date():
+        cursor.execute("""
+            UPDATE Inventario
+            SET Date_Received = %s
+            WHERE Product_ID = %s
+        """, (fecha_entrega, product_id))
+
+        cursor.execute("""
+            UPDATE Productos
+            SET Status = 'Active'
+            WHERE Product_ID = %s
+        """, (product_id,))
 
     conn.commit()
     cursor.close()
@@ -313,5 +333,6 @@ def registrar_pedido_manual():
         "Cantidad_Solicitada": cantidad,
         "Stock_Actual": stock_actual,
         "Fecha_Entrega_Estimada": str(fecha_entrega),
-        "Nuevo_Estado": "Backordered"
+        "Nueva_Fecha_Expiracion": str(fecha_expiracion),
+        "Nuevo_Estado": "Active" if fecha_entrega <=datetime.today().date() else "Backordered"
     }), 200
