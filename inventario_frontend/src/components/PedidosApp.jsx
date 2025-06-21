@@ -102,6 +102,7 @@ const PedidosApp = () => {
 
     obtenerProveedores();
   }, []);
+  
 
   // Manejar cambios en el formulario
   const handleChange = (e) => {
@@ -368,61 +369,7 @@ const PedidosApp = () => {
             )}
           </Paper>
         </Grid>
-        {/* Historial de pedidos */}
-        <Grid item xs={12}>
-          <Paper sx={{ p: 3, backgroundColor: '#f9f9f9', borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Historial de Pedidos
-            </Typography>
-            
-            {pedidos.length === 0 ? (
-              <Alert severity="info">No se han realizado pedidos aún</Alert>
-            ) : (
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Producto</TableCell>
-                      <TableCell>Proveedor</TableCell>
-                      <TableCell>Cantidad</TableCell>
-                      <TableCell>Fecha Entrega</TableCell>
-                      <TableCell>Estado</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {pedidos.map((pedido, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          {pedido.Product_ID}  {/* Solo muestra el ID del producto */}
-                        </TableCell>
-                        <TableCell>
-                          {pedido.Supplier_ID}  {/* Solo muestra el ID del proveedor */}
-                        </TableCell>
-                        <TableCell>{pedido.Cantidad_Solicitada}</TableCell>
-                        <TableCell>{pedido.Fecha_Entrega_Estimada}</TableCell>
-                        <TableCell>
-                          <Box 
-                            sx={{
-                              display: 'inline-block',
-                              px: 1,
-                              py: 0.5,
-                              borderRadius: 1,
-                              backgroundColor: pedido.Nuevo_Estado === 'Backordered' ? '#ff9800' : '#4caf50',
-                              color: 'white',
-                              fontWeight: 'bold'
-                            }}
-                          >
-                            {pedido.Nuevo_Estado}
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-          </Paper>
-        </Grid>
+        
       </Grid>
     </Container>
   );
