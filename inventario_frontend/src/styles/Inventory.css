@@ -1066,3 +1066,15 @@
   margin: 0;
   line-height: 1.6;
 }
+
+/* Agregar estilos para la nueva columna PRO */
+.cell-pro {
+  font-weight: 600;
+  color: var(--inventory-danger);
+  font-size: 1.125rem;
+}
+
+.pro-value {
+  font-weight: 700;
+  color: var(--inventory-danger);
+}
